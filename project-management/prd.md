@@ -359,3 +359,297 @@ class RAGService:
 # 全局RAG服务实例
 rag_service = RAGService()
 ```
+
+#### 3.2 创建 FastAPI 应用
+
+创建 `backend/app/main.py`：
+
+```python
+import logging
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+from typing import Optional
+
+from config.settings import settings
+from app.rag_service import rag_service
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# 创建FastAPI应用
+app = FastAPI(
+    title="RAG聊天应用",
+    description="基于LlamaIndex和ChromaDB的极简RAG聊天应用",
+    version="1.0.0"
+)
+
+# 配置CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 挂载静态文件
+app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
+
+# 请求模型
+class QueryRequest(BaseModel):
+    question: str
+
+class QueryResponse(BaseModel):
+    success: bool
+    answer: str
+    sources: list = []
+    error: str = ""
+
+# API路由
+@app.get("/")
+async def root():
+    """根路径，返回聊天页面"""
+    return FileResponse("frontend/chat.html")
+
+@app.get("/health")
+async def health_check():
+    """健康检查"""
+    return {"status": "healthy", "message": "RAG聊天应用运行正常"}
+
+@app.get("/api/status")
+async def get_status():
+    """获取系统状态"""
+    try:
+        status = rag_service.get_status()
+        return {"success": True, "data": status}
+    except Exception as e:
+        logger.error(f"获取状态失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/load-documents")
+async def load_documents():
+    """加载文档到向量数据库"""
+    try:
+        success = rag_service.load_documents()
+        if success:
+            return {"success": True, "message": "文档加载成功"}
+        else:
+            return {"success": False, "message": "文档加载失败，请检查data目录中是否有TXT文件"}
+    except Exception as e:
+        logger.error(f"加载文档失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/query", response_model=QueryResponse)
+async def query_documents(request: QueryRequest):
+    """查询文档"""
+    try:
+        if not request.question.strip():
+            raise HTTPException(status_code=400, detail="问题不能为空")
+
+        result = rag_service.query(request.question)
+        return QueryResponse(**result)
+
+    except Exception as e:
+        logger.error(f"查询失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 启动事件
+@app.on_event("startup")
+async def startup_event():
+    """应用启动时的初始化"""
+    logger.info("RAG聊天应用启动中...")
+
+    # 尝试自动加载文档
+    try:
+        rag_service.load_documents()
+        logger.info("启动时自动加载文档完成")
+    except Exception as e:
+        logger.warning(f"启动时自动加载文档失败: {e}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "main:app",
+        host=settings.app_host,
+        port=settings.app_port,
+        reload=True
+    )
+```
+
+#### 3.3 创建启动脚本
+
+创建 `backend/run.py`：
+
+```python
+#!/usr/bin/env python3
+"""
+RAG聊天应用启动脚本
+"""
+import os
+import sys
+import uvicorn
+from pathlib import Path
+
+# 添加项目根目录到Python路径
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
+
+from config.settings import settings
+
+def main():
+    """主函数"""
+    print("🚀 启动RAG聊天应用...")
+    print(f"📍 服务地址: http://{settings.app_host}:{settings.app_port}")
+    print(f"📁 数据目录: {settings.data_dir}")
+    print(f"💾 存储目录: {settings.storage_dir}")
+    print("=" * 50)
+
+    # 确保必要目录存在
+    os.makedirs(settings.data_dir, exist_ok=True)
+    os.makedirs(settings.storage_dir, exist_ok=True)
+
+    # 启动服务
+    uvicorn.run(
+        "app.main:app",
+        host=settings.app_host,
+        port=settings.app_port,
+        reload=True,
+        log_level="info"
+    )
+
+if __name__ == "__main__":
+    main()
+```
+
+### 第四步：前端开发
+
+#### 4.1 创建聊天页面 HTML
+
+创建 `frontend/chat.html`：
+
+```html
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RAG聊天应用</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      .chat-container {
+        height: calc(100vh - 200px);
+      }
+      .message-bubble {
+        max-width: 80%;
+        word-wrap: break-word;
+      }
+      .typing-indicator {
+        display: none;
+      }
+      .typing-indicator.show {
+        display: flex;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background-color: #9ca3af;
+        animation: typing 1.4s infinite ease-in-out;
+      }
+      .dot:nth-child(1) {
+        animation-delay: -0.32s;
+      }
+      .dot:nth-child(2) {
+        animation-delay: -0.16s;
+      }
+      .dot:nth-child(3) {
+        animation-delay: 0s;
+      }
+
+      @keyframes typing {
+        0%,
+        80%,
+        100% {
+          transform: scale(0);
+        }
+        40% {
+          transform: scale(1);
+        }
+      }
+    </style>
+  </head>
+  <body class="bg-gray-100">
+    <div class="container mx-auto max-w-4xl p-4">
+      <!-- 头部 -->
+      <header class="bg-white rounded-lg shadow-md p-6 mb-4">
+        <h1 class="text-3xl font-bold text-gray-800 text-center">
+          🤖 RAG聊天应用
+        </h1>
+        <p class="text-gray-600 text-center mt-2">
+          基于您的文档内容进行智能问答
+        </p>
+
+        <!-- 状态栏 -->
+        <div class="mt-4 flex justify-between items-center">
+          <div id="status-indicator" class="flex items-center">
+            <div class="w-3 h-3 rounded-full bg-gray-400 mr-2"></div>
+            <span class="text-sm text-gray-600">检查状态中...</span>
+          </div>
+          <button
+            id="load-docs-btn"
+            class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm transition-colors"
+          >
+            📁 重新加载文档
+          </button>
+        </div>
+      </header>
+
+      <!-- 聊天区域 -->
+      <div class="bg-white rounded-lg shadow-md">
+        <!-- 消息列表 -->
+        <div
+          id="chat-messages"
+          class="chat-container overflow-y-auto p-6 space-y-4"
+        >
+          <div class="flex justify-center">
+            <div class="bg-blue-50 text-blue-800 px-4 py-2 rounded-lg text-sm">
+              💡 请在data目录放入TXT文件，然后开始提问吧！
+            </div>
+          </div>
+        </div>
+
+        <!-- 输入区域 -->
+        <div class="border-t p-4">
+          <div class="flex space-x-2">
+            <input
+              type="text"
+              id="question-input"
+              placeholder="请输入您的问题..."
+              class="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              maxlength="500"
+            />
+            <button
+              id="send-btn"
+              class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg transition-colors"
+            >
+              发送
+            </button>
+          </div>
+          <div class="text-xs text-gray-500 mt-2">
+            按Enter发送消息 • 最多500字符
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="/static/js/chat.js"></script>
+  </body>
+</html>
+```
