@@ -110,9 +110,6 @@ storage/
 *.parquet
 
 # Large data files
-data/*.txt
-!data/sample_document.txt
-
 # Temporary files
 *.tmp
 *.temp
