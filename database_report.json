@@ -1,0 +1,223 @@
+{
+  "timestamp": "C:\\Users\\Administrator\\Desktop\\fast-gzmdrw-chat",
+  "chroma_data": {
+    "total_documents": 4,
+    "unique_files": 1,
+    "files": {
+      "sample_document.txt": {
+        "filename": "sample_document.txt",
+        "chunks": [
+          {
+            "id": "928feb3e-80cd-41bc-ac63-7dd59bc12f19",
+            "text_length": 476
+          },
+          {
+            "id": "e270e5da-6c41-4a47-a46a-0a3769e2c314",
+            "text_length": 415
+          },
+          {
+            "id": "fb6c055d-f575-4cb5-980f-67e3c4621038",
+            "text_length": 610
+          },
+          {
+            "id": "2dc3fc72-be7f-418f-a183-bb13bce26494",
+            "text_length": 195
+          }
+        ],
+        "total_chunks": 4,
+        "file_size": 3721,
+        "file_path": "data\\sample_document.txt",
+        "file_modified": "1750172715.527476"
+      }
+    }
+  },
+  "sqlite_data": {
+    "database_path": "storage\\chroma.sqlite3",
+    "tables": {
+      "migrations": {
+        "row_count": 16,
+        "columns": [
+          "dir",
+          "version",
+          "filename",
+          "sql",
+          "hash"
+        ]
+      },
+      "acquire_write": {
+        "row_count": 14,
+        "columns": [
+          "id",
+          "lock_status"
+        ]
+      },
+      "collection_metadata": {
+        "row_count": 0,
+        "columns": [
+          "collection_id",
+          "key",
+          "str_value",
+          "int_value",
+          "float_value",
+          "bool_value"
+        ]
+      },
+      "segment_metadata": {
+        "row_count": 0,
+        "columns": [
+          "segment_id",
+          "key",
+          "str_value",
+          "int_value",
+          "float_value",
+          "bool_value"
+        ]
+      },
+      "tenants": {
+        "row_count": 1,
+        "columns": [
+          "id"
+        ]
+      },
+      "databases": {
+        "row_count": 1,
+        "columns": [
+          "id",
+          "name",
+          "tenant_id"
+        ]
+      },
+      "collections": {
+        "row_count": 1,
+        "columns": [
+          "id",
+          "name",
+          "dimension",
+          "database_id",
+          "config_json_str"
+        ]
+      },
+      "maintenance_log": {
+        "row_count": 0,
+        "columns": [
+          "id",
+          "timestamp",
+          "operation"
+        ]
+      },
+      "segments": {
+        "row_count": 2,
+        "columns": [
+          "id",
+          "type",
+          "scope",
+          "collection"
+        ]
+      },
+      "embeddings": {
+        "row_count": 4,
+        "columns": [
+          "id",
+          "segment_id",
+          "embedding_id",
+          "seq_id",
+          "created_at"
+        ]
+      },
+      "embedding_metadata": {
+        "row_count": 56,
+        "columns": [
+          "id",
+          "key",
+          "string_value",
+          "int_value",
+          "float_value",
+          "bool_value"
+        ]
+      },
+      "max_seq_id": {
+        "row_count": 1,
+        "columns": [
+          "segment_id",
+          "seq_id"
+        ]
+      },
+      "embedding_fulltext_search": {
+        "row_count": 4,
+        "columns": [
+          "string_value"
+        ]
+      },
+      "embedding_fulltext_search_data": {
+        "row_count": 10,
+        "columns": [
+          "id",
+          "block"
+        ]
+      },
+      "embedding_fulltext_search_idx": {
+        "row_count": 8,
+        "columns": [
+          "segid",
+          "term",
+          "pgno"
+        ]
+      },
+      "embedding_fulltext_search_content": {
+        "row_count": 4,
+        "columns": [
+          "id",
+          "c0"
+        ]
+      },
+      "embedding_fulltext_search_docsize": {
+        "row_count": 4,
+        "columns": [
+          "id",
+          "sz"
+        ]
+      },
+      "embedding_fulltext_search_config": {
+        "row_count": 1,
+        "columns": [
+          "k",
+          "v"
+        ]
+      },
+      "embeddings_queue": {
+        "row_count": 22,
+        "columns": [
+          "seq_id",
+          "created_at",
+          "operation",
+          "topic",
+          "id",
+          "vector",
+          "encoding",
+          "metadata"
+        ]
+      },
+      "embeddings_queue_config": {
+        "row_count": 1,
+        "columns": [
+          "id",
+          "config_json_str"
+        ]
+      }
+    }
+  },
+  "consistency": {
+    "disk_files": [
+      "sample_document.txt"
+    ],
+    "database_files": [
+      "sample_document.txt"
+    ],
+    "only_on_disk": [],
+    "only_in_database": [],
+    "common_files": [
+      "sample_document.txt"
+    ],
+    "consistency_ok": true
+  }
+}

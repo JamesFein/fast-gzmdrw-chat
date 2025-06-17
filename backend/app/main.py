@@ -5,7 +5,7 @@ FastAPI主应用
 import logging
 import time
 from typing import Dict, Any
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -89,6 +89,39 @@ class StatusResponse(BaseModel):
     data_directory: str = Field(..., description="数据目录")
 
 
+class DocumentInfo(BaseModel):
+    filename: str = Field(..., description="文件名")
+    chunks_count: int = Field(..., description="文档块数量")
+    file_size: int = Field(..., description="文件大小（字节）")
+    file_modified: str = Field(..., description="文件修改时间")
+    file_path: str = Field(..., description="文件路径")
+
+
+class DocumentsListResponse(BaseModel):
+    success: bool = Field(..., description="是否成功")
+    message: str = Field(..., description="响应消息")
+    documents: list[DocumentInfo] = Field(..., description="文档列表")
+    total_chunks: int = Field(..., description="总文档块数量")
+
+
+class UploadDocumentResponse(BaseModel):
+    success: bool = Field(..., description="是否成功")
+    message: str = Field(..., description="响应消息")
+    filename: str = Field(..., description="文件名")
+    replaced: bool = Field(..., description="是否替换了同名文件")
+    old_chunks: int = Field(..., description="旧文件块数量")
+    new_chunks: int = Field(..., description="新文件块数量")
+    total_chunks: int = Field(..., description="总文档块数量")
+
+
+class DeleteDocumentResponse(BaseModel):
+    success: bool = Field(..., description="是否成功")
+    message: str = Field(..., description="响应消息")
+    filename: str = Field(..., description="文件名")
+    deleted_chunks: int = Field(..., description="删除的文档块数量")
+    total_chunks: int = Field(..., description="总文档块数量")
+
+
 # 静态文件服务
 app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
 
@@ -103,6 +136,20 @@ async def read_root():
     except FileNotFoundError:
         return HTMLResponse(
             content="<h1>页面未找到</h1><p>请确保前端文件存在</p>",
+            status_code=404
+        )
+
+
+@app.get("/documents", response_class=HTMLResponse)
+async def documents_page():
+    """返回文档管理页面"""
+    try:
+        with open("frontend/templates/documents.html", "r", encoding="utf-8") as f:
+            html_content = f.read()
+        return HTMLResponse(content=html_content)
+    except FileNotFoundError:
+        return HTMLResponse(
+            content="<h1>页面未找到</h1><p>文档管理页面不存在</p>",
             status_code=404
         )
 
@@ -156,31 +203,104 @@ async def query_documents(request: QueryRequest):
     try:
         if not rag_service:
             raise HTTPException(status_code=503, detail="RAG服务未初始化")
-        
+
         start_time = time.time()
         result = rag_service.query(
             question=request.query,
             max_results=request.max_results
         )
         processing_time = time.time() - start_time
-        
+
         if not result["success"]:
             raise HTTPException(status_code=400, detail=result["message"])
-        
+
         response_data = {
             "answer": result["answer"],
             "sources": result["sources"],
             "processing_time": processing_time,
             "total_sources": result["total_sources"]
         }
-        
+
         return QueryResponse(**response_data)
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"查询失败: {e}")
         raise HTTPException(status_code=500, detail=f"查询失败: {str(e)}")
+
+
+# 文档管理API接口
+@app.get("/api/documents", response_model=DocumentsListResponse)
+async def get_documents_list():
+    """获取文档列表"""
+    try:
+        if not rag_service:
+            raise HTTPException(status_code=503, detail="RAG服务未初始化")
+
+        result = rag_service.get_documents_list()
+
+        if not result["success"]:
+            raise HTTPException(status_code=400, detail=result["message"])
+
+        return DocumentsListResponse(**result)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取文档列表失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取文档列表失败: {str(e)}")
+
+
+@app.post("/api/documents/upload", response_model=UploadDocumentResponse)
+async def upload_document(file: UploadFile = File(...)):
+    """上传文档"""
+    try:
+        if not rag_service:
+            raise HTTPException(status_code=503, detail="RAG服务未初始化")
+
+        # 检查文件类型
+        if not file.filename.endswith('.txt'):
+            raise HTTPException(status_code=400, detail="只支持TXT文件格式")
+
+        # 读取文件内容
+        content = await file.read()
+        file_content = content.decode('utf-8')
+
+        # 上传文档
+        result = rag_service.upload_document(file_content, file.filename)
+
+        if not result["success"]:
+            raise HTTPException(status_code=400, detail=result["message"])
+
+        return UploadDocumentResponse(**result)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"上传文档失败: {e}")
+        raise HTTPException(status_code=500, detail=f"上传文档失败: {str(e)}")
+
+
+@app.delete("/api/documents/{filename}", response_model=DeleteDocumentResponse)
+async def delete_document(filename: str):
+    """删除文档"""
+    try:
+        if not rag_service:
+            raise HTTPException(status_code=503, detail="RAG服务未初始化")
+
+        result = rag_service.delete_document(filename)
+
+        if not result["success"]:
+            raise HTTPException(status_code=400, detail=result["message"])
+
+        return DeleteDocumentResponse(**result)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"删除文档失败: {e}")
+        raise HTTPException(status_code=500, detail=f"删除文档失败: {str(e)}")
 
 
 @app.middleware("http")

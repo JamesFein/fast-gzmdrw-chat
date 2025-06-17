@@ -258,7 +258,7 @@ class RAGService:
             logger.error(f"删除文档失败: {e}")
             raise
     
-    def _process_single_file(self, file_path: Path):
+    def _process_single_file(self, file_path: Path, custom_filename: str = None):
         """处理单个文件，添加到索引中"""
         try:
             # 读取文档
@@ -266,26 +266,29 @@ class RAGService:
                 input_files=[str(file_path)]
             )
             documents = reader.load_data()
-            
+
             if not documents:
                 logger.warning(f"文件为空或读取失败: {file_path}")
                 return
-            
+
+            # 使用自定义文件名或原文件名
+            filename = custom_filename or file_path.name
+
             # 为文档添加元数据
             for doc in documents:
                 doc.metadata.update({
-                    "filename": file_path.name,
+                    "filename": filename,
                     "file_path": str(file_path),
                     "file_size": file_path.stat().st_size,
                     "file_modified": str(file_path.stat().st_mtime)
                 })
-            
+
             # 添加到索引
             for doc in documents:
                 self.index.insert(doc)
-            
-            logger.info(f"成功处理文件: {file_path.name}")
-            
+
+            logger.info(f"成功处理文件: {filename}")
+
         except Exception as e:
             logger.error(f"处理文件失败 {file_path}: {e}")
             raise
@@ -336,7 +339,7 @@ class RAGService:
         """获取系统状态"""
         try:
             doc_count = self.collection.count() if self.collection else 0
-            
+
             # 计算存储大小
             storage_path = Path(settings.chroma_persist_directory)
             storage_size = 0
@@ -344,9 +347,9 @@ class RAGService:
                 for file_path in storage_path.rglob("*"):
                     if file_path.is_file():
                         storage_size += file_path.stat().st_size
-            
+
             storage_size_mb = storage_size / (1024 * 1024)
-            
+
             return {
                 "status": "ok",
                 "documents_count": doc_count,
@@ -354,10 +357,175 @@ class RAGService:
                 "collection_name": settings.collection_name,
                 "data_directory": settings.data_dir
             }
-            
+
         except Exception as e:
             logger.error(f"获取状态失败: {e}")
             return {
                 "status": "error",
                 "message": str(e)
+            }
+
+    def get_documents_list(self) -> Dict[str, Any]:
+        """获取所有文档列表"""
+        try:
+            if not self.collection:
+                return {
+                    "success": False,
+                    "message": "集合未初始化",
+                    "documents": []
+                }
+
+            # 获取所有文档的元数据
+            result = self.collection.get(include=["metadatas"])
+
+            if not result["ids"]:
+                return {
+                    "success": True,
+                    "message": "暂无文档",
+                    "documents": []
+                }
+
+            # 按文件名分组统计
+            file_stats = {}
+            for i, _ in enumerate(result["ids"]):
+                metadata = result["metadatas"][i] if result["metadatas"] else {}
+                filename = metadata.get("filename", "未知文件")
+
+                if filename not in file_stats:
+                    file_stats[filename] = {
+                        "filename": filename,
+                        "chunks_count": 0,
+                        "file_size": metadata.get("file_size", 0),
+                        "file_modified": metadata.get("file_modified", ""),
+                        "file_path": metadata.get("file_path", "")
+                    }
+
+                file_stats[filename]["chunks_count"] += 1
+
+            documents = list(file_stats.values())
+
+            return {
+                "success": True,
+                "message": f"找到 {len(documents)} 个文档",
+                "documents": documents,
+                "total_chunks": len(result["ids"])
+            }
+
+        except Exception as e:
+            logger.error(f"获取文档列表失败: {e}")
+            return {
+                "success": False,
+                "message": f"获取文档列表失败: {str(e)}",
+                "documents": []
+            }
+
+    def upload_document(self, file_content: str, filename: str) -> Dict[str, Any]:
+        """上传单个文档"""
+        try:
+            # 检查文件名是否已存在
+            existing_ids = self._get_document_ids_by_filename(filename)
+            replaced = False
+            old_chunks_count = 0
+
+            if existing_ids:
+                # 删除旧文件的所有相关数据
+                old_chunks_count = len(existing_ids)
+                self._delete_document_by_filename(filename)
+                replaced = True
+                logger.info(f"删除同名文件的旧数据: {filename}, 块数: {old_chunks_count}")
+
+            # 确保data目录存在
+            data_path = Path(settings.data_dir)
+            data_path.mkdir(exist_ok=True)
+
+            # 保存文件到data目录
+            file_path = data_path / filename
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(file_content)
+
+            logger.info(f"文件已保存到: {file_path}")
+
+            # 处理文件
+            self._process_single_file(file_path)
+
+            # 获取新的块数量
+            new_ids = self._get_document_ids_by_filename(filename)
+            new_chunks_count = len(new_ids)
+
+            # 重新创建查询引擎
+            self._create_query_engine()
+
+            return {
+                "success": True,
+                "message": f"文档上传成功: {filename}",
+                "filename": filename,
+                "replaced": replaced,
+                "old_chunks": old_chunks_count if replaced else 0,
+                "new_chunks": new_chunks_count,
+                "total_chunks": self.collection.count(),
+                "file_path": str(file_path)
+            }
+
+        except Exception as e:
+            logger.error(f"上传文档失败: {e}")
+            return {
+                "success": False,
+                "message": f"上传文档失败: {str(e)}",
+                "filename": filename
+            }
+
+    def delete_document(self, filename: str) -> Dict[str, Any]:
+        """删除指定文档"""
+        try:
+            # 获取文档ID
+            existing_ids = self._get_document_ids_by_filename(filename)
+
+            if not existing_ids:
+                return {
+                    "success": False,
+                    "message": f"文档不存在: {filename}",
+                    "filename": filename
+                }
+
+            # 删除数据库中的文档
+            chunks_count = len(existing_ids)
+            self._delete_document_by_filename(filename)
+
+            # 删除data目录中的文件
+            data_path = Path(settings.data_dir)
+            file_path = data_path / filename
+            file_deleted_from_disk = False
+
+            if file_path.exists():
+                try:
+                    file_path.unlink()
+                    file_deleted_from_disk = True
+                    logger.info(f"已从磁盘删除文件: {file_path}")
+                except Exception as e:
+                    logger.warning(f"删除磁盘文件失败: {e}")
+
+            # 重新创建查询引擎
+            self._create_query_engine()
+
+            message = f"文档删除成功: {filename}"
+            if file_deleted_from_disk:
+                message += " (包括磁盘文件)"
+            else:
+                message += " (仅删除数据库记录)"
+
+            return {
+                "success": True,
+                "message": message,
+                "filename": filename,
+                "deleted_chunks": chunks_count,
+                "file_deleted_from_disk": file_deleted_from_disk,
+                "total_chunks": self.collection.count()
+            }
+
+        except Exception as e:
+            logger.error(f"删除文档失败: {e}")
+            return {
+                "success": False,
+                "message": f"删除文档失败: {str(e)}",
+                "filename": filename
             }
